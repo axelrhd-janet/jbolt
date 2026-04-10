@@ -55,9 +55,6 @@ No system dependencies required. LMDB is vendored and compiled together with the
 # Iterate over all entries
 (jbolt/each db "users"
   (fn [k v] (print k " -> " (v :name))))
-
-# Close the database
-(jbolt/close db)
 ```
 
 ## API
