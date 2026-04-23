@@ -1,7 +1,11 @@
 (declare-project
   :name "jbolt"
   :description "Embedded key-value store for Janet, wrapping LMDB"
-  :version "0.1.0")
+  :version "0.1.0"
+  :author "AxelRHD"
+  :license "MIT"
+  :url "https://github.com/axelrhd-janet/jbolt"
+  :repo "git+https://github.com/axelrhd-janet/jbolt")
 
 (declare-native
   :name "jbolt"
