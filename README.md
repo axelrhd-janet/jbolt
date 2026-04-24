@@ -235,6 +235,11 @@ For interop with other tools (or plain JSON backups), jbolt can round-trip data 
 # are left untouched. Inner pairs may be tuples or arrays.
 (jbolt/import-bucket db "users" @[["u1" "Alice"] ["u2" "Bob"]])
 (jbolt/import-db db @{"users" @[...] "config" @[...]})
+
+# Recursively turn string dict keys back into keywords — intended as
+# a post-processing step after json/decode.
+(jbolt/keywordize-keys @{"users" @[@["u1" @{"name" "Alice"}]]})
+# => @{:users @[@["u1" @{:name "Alice"}]]}
 ```
 
 JSON backup via spork:
