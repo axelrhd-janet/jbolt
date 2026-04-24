@@ -98,11 +98,22 @@ No system dependencies required. LMDB is vendored and compiled together with the
 
 ### Iteration
 
-All iteration functions operate in key-sorted order.
+All iteration functions operate in key-sorted order. `each`, `collect`, `map`, `filter`, and `keys` accept a `:reverse true` named argument to walk in descending order. Callbacks to `each`, `prefix`, and `range` can return `:break` to stop early.
 
 ```janet
 # Iterate with callback
 (jbolt/each db "users" (fn [k v] (print k)))
+
+# Early exit — find first matching entry
+(var found nil)
+(jbolt/each db "users"
+  (fn [k v]
+    (when (= (v :role) :admin)
+      (set found [k v])
+      :break)))
+
+# Descending iteration
+(jbolt/each db "users" (fn [k v] (print k)) :reverse true)
 
 # Collect all entries as [key value] tuples
 (jbolt/collect db "users")
@@ -147,7 +158,7 @@ All iteration functions operate in key-sorted order.
 
 ### Transactions
 
-Individual `put`/`get`/`delete` calls use implicit transactions. For atomic multi-key operations, use explicit transactions:
+Individual `put`/`get`/`delete` calls use implicit transactions. For atomic multi-key operations, use explicit transactions. The full read/iteration surface is available as `tx-*` counterparts, so compare-and-swap and conditional writes work atomically:
 
 ```janet
 # Read-write transaction — commits on success, rolls back on error
@@ -161,7 +172,29 @@ Individual `put`/`get`/`delete` calls use implicit transactions. For atomic mult
 (jbolt/view db
   (fn [tx]
     (jbolt/tx-get tx "users" "usr-001")))
+
+# Compare-and-swap — atomic read-then-conditional-write
+(jbolt/update db
+  (fn [tx]
+    (def current (jbolt/tx-get tx "users" "usr-001"))
+    (when (= (current :version) 3)
+      (jbolt/tx-put tx "users" "usr-001"
+        (merge current {:version 4 :name "Axel R."})))))
+
+# Atomic allocate-id-and-insert
+(jbolt/update db
+  (fn [tx]
+    (def id (jbolt/tx-next-id tx "users"))
+    (jbolt/tx-put tx "users" (string "usr-" id) {:id id :name "new"})))
+
+# Bulk insert — one transaction, one commit
+(jbolt/update db
+  (fn [tx]
+    (each [k v] entries
+      (jbolt/tx-put tx "users" k v))))
 ```
+
+Available inside a `tx`: `tx-get`, `tx-put`, `tx-delete`, `tx-has?`, `tx-count`, `tx-keys`, `tx-collect`, `tx-each`, `tx-map`, `tx-filter`, `tx-first`, `tx-last`, `tx-seek`, `tx-prefix`, `tx-range`, `tx-next-id`. The iteration variants accept the same `:reverse` and `:break` conventions as their top-level counterparts. `tx-next-id` requires a read-write transaction.
 
 ### Utility
 
@@ -181,6 +214,62 @@ Individual `put`/`get`/`delete` calls use implicit transactions. For atomic mult
 (jbolt/db-stats db)
 # => {:entries 42 :depth 2 :page-size 4096 :map-size 268435456 :last-page 5 :last-txn 10 :max-readers 126 :num-readers 0}
 ```
+
+### Export / import
+
+For interop with other tools (or plain JSON backups), jbolt can round-trip data through ordinary Janet values. `export-db` captures a consistent snapshot in a single read-only transaction; `import-db` writes everything in a single atomic write transaction.
+
+```janet
+# Export a single bucket as a pair-array, in key order
+(jbolt/export-bucket db "users")
+# => @[["usr-001" {...}] ["usr-002" {...}]]
+
+# Export the whole database as {bucket-name entries}
+(jbolt/export-db db)
+# => @{"users" @[[...] ...] "sessions" @[[...] ...]}
+
+# Include the internal meta bucket (next-id state) for a full backup
+(jbolt/export-db db :include-meta true)
+
+# Import writes pairs back. Existing keys are overwritten; other buckets
+# are left untouched. Inner pairs may be tuples or arrays.
+(jbolt/import-bucket db "users" @[["u1" "Alice"] ["u2" "Bob"]])
+(jbolt/import-db db @{"users" @[...] "config" @[...]})
+```
+
+JSON backup via spork:
+
+```janet
+(import spork/json)
+
+# Dump
+(spit "backup.json" (json/encode (jbolt/export-db db)))
+
+# Restore — if your original data used keyword keys, pipe through keywordize-keys
+(jbolt/import-db db
+  (jbolt/keywordize-keys (json/decode (slurp "backup.json"))))
+```
+
+**JSON is lossy.** JSON cannot represent all Janet types. After a `json/encode` → `json/decode` cycle:
+
+- `:admin` (keyword) → `"admin"` (string)
+- `[1 2 3]` (tuple) → `@[1 2 3]` (array)
+- `{:a 1}` (struct with keyword keys) → `@{"a" 1}` (table with string keys)
+- Symbols, buffers, abstract values — not supported
+
+`jbolt/keywordize-keys` recursively turns string dictionary keys back into keywords, which is enough to undo the most common loss (keyword keys). It only walks keys — values that happened to be keywords originally stay as strings. `import-db` accepts keyword bucket names, so the pipeline works end-to-end.
+
+For **fully loss-free** backup inside Janet, use JDN (Janet Data Notation) instead. JDN is Janet's native literal syntax and preserves all types:
+
+```janet
+# Dump — lossless
+(spit "backup.jdn" (string/format "%j" (jbolt/export-db db)))
+
+# Restore — keywords, structs, tuples come back exactly
+(jbolt/import-db db (parse (slurp "backup.jdn")))
+```
+
+Or just use `jbolt/backup` for a binary LMDB snapshot — fastest and lossless, but not human-readable.
 
 ## Serialization
 
