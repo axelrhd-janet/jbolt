@@ -843,6 +843,107 @@
     (and swapped (= v "v-new")))
   "compare-and-swap pattern using tx-get + tx-put")
 
+(test/assert
+  (do
+    (def db (fresh-db))
+    (jbolt/put db "users" "u1" {:name "Axel" :role :admin})
+    (def returned
+      (jbolt/update db
+        (fn [tx]
+          (jbolt/tx-merge tx "users" "u1"
+                          {:email "axel@example.com" :role :super}))))
+    (def stored (jbolt/get db "users" "u1"))
+    (jbolt/close db)
+    (cleanup)
+    (and (= (returned :name) "Axel")
+         (= (returned :email) "axel@example.com")
+         (= (returned :role) :super)
+         (= (stored :email) "axel@example.com")
+         (= (stored :role) :super)))
+  "tx-merge adds and overwrites fields")
+
+(test/assert
+  (do
+    (def db (fresh-db))
+    (def returned
+      (jbolt/update db
+        (fn [tx]
+          (jbolt/tx-merge tx "users" "u-new" {:name "Fresh"}))))
+    (def stored (jbolt/get db "users" "u-new"))
+    (jbolt/close db)
+    (cleanup)
+    (and (= (returned :name) "Fresh")
+         (= (stored :name) "Fresh")))
+  "tx-merge creates entry if key does not exist")
+
+(test/assert
+  (do
+    (def db (fresh-db))
+    # Bulk-merge pattern: read-modify-write across many entries in one txn
+    (jbolt/put db "users" "a" {:name "A"})
+    (jbolt/put db "users" "b" {:name "B"})
+    (jbolt/put db "users" "c" {:name "C"})
+    (jbolt/update db
+      (fn [tx]
+        (jbolt/tx-each tx "users"
+          (fn [k _]
+            (jbolt/tx-merge tx "users" k {:year 2026})))))
+    (def years (jbolt/map db "users" (fn [_ v] (v :year))))
+    (jbolt/close db)
+    (cleanup)
+    (deep= years @[2026 2026 2026]))
+  "tx-merge inside tx-each bulk-updates all entries")
+
+(test/assert
+  (do
+    (def db (fresh-db))
+    (jbolt/put db "users" "u1" {:name "Axel" :tmp "x" :other "y" :keep true})
+    (def returned
+      (jbolt/update db
+        (fn [tx]
+          (jbolt/tx-dissoc tx "users" "u1" :tmp :other))))
+    (def stored (jbolt/get db "users" "u1"))
+    (jbolt/close db)
+    (cleanup)
+    (and (= (returned :name) "Axel")
+         (= (returned :keep) true)
+         (nil? (returned :tmp))
+         (nil? (stored :tmp))
+         (nil? (stored :other))))
+  "tx-dissoc removes fields")
+
+(test/assert
+  (do
+    (def db (fresh-db))
+    (def r-missing-bucket
+      (jbolt/update db
+        (fn [tx] (jbolt/tx-dissoc tx "missing" "k" :a))))
+    (jbolt/ensure-bucket db "users")
+    (def r-missing-key
+      (jbolt/update db
+        (fn [tx] (jbolt/tx-dissoc tx "users" "ghost" :a))))
+    (jbolt/close db)
+    (cleanup)
+    (and (nil? r-missing-bucket) (nil? r-missing-key)))
+  "tx-dissoc returns nil when bucket or key is missing")
+
+(test/assert
+  (do
+    (def db (fresh-db))
+    (jbolt/put db "users" "u1" {:name "A" :draft true})
+    # Atomic merge + dissoc inside one txn
+    (jbolt/update db
+      (fn [tx]
+        (jbolt/tx-merge tx "users" "u1" {:name "Axel" :role :admin})
+        (jbolt/tx-dissoc tx "users" "u1" :draft)))
+    (def stored (jbolt/get db "users" "u1"))
+    (jbolt/close db)
+    (cleanup)
+    (and (= (stored :name) "Axel")
+         (= (stored :role) :admin)
+         (nil? (stored :draft))))
+  "tx-merge and tx-dissoc compose atomically in one txn")
+
 (test/end-suite)
 
 # ----------------------------------------------------------------

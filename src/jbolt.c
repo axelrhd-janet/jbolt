@@ -1167,6 +1167,103 @@ static Janet jbolt_tx_delete(int32_t argc, Janet *argv) {
     return janet_wrap_nil();
 }
 
+static Janet jbolt_tx_merge(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 4);
+    JBoltTx *tx = janet_getabstract(argv, 0, &jbolt_tx_type);
+    jbolt_check_tx(tx);
+    const char *bucket = (const char *)janet_getstring(argv, 1);
+    const char *keystr = (const char *)janet_getstring(argv, 2);
+    Janet updates = argv[3];
+
+    MDB_dbi dbi = jbolt_open_dbi(tx->db, tx->txn, bucket, MDB_CREATE);
+
+    MDB_val mkey = {strlen(keystr), (void *)keystr};
+    MDB_val mval;
+    JanetTable *tbl;
+
+    int rc = mdb_get(tx->txn, dbi, &mkey, &mval);
+    if (rc == MDB_SUCCESS) {
+        Janet existing = jbolt_unmarshal(mval.mv_data, mval.mv_size);
+        if (janet_checktype(existing, JANET_STRUCT)) {
+            tbl = janet_struct_to_table(janet_unwrap_struct(existing));
+        } else if (janet_checktype(existing, JANET_TABLE)) {
+            tbl = janet_unwrap_table(existing);
+        } else {
+            janet_panic("jbolt: tx-merge requires existing value to be a table or struct");
+        }
+    } else if (rc == MDB_NOTFOUND) {
+        tbl = janet_table(8);
+    } else {
+        jbolt_panic_rc(rc);
+        return janet_wrap_nil(); /* unreachable */
+    }
+
+    const JanetKV *kvs;
+    int32_t cap;
+    if (janet_checktype(updates, JANET_STRUCT)) {
+        JanetStruct st = janet_unwrap_struct(updates);
+        kvs = st;
+        cap = janet_struct_capacity(st);
+    } else if (janet_checktype(updates, JANET_TABLE)) {
+        JanetTable *upd = janet_unwrap_table(updates);
+        kvs = upd->data;
+        cap = upd->capacity;
+    } else {
+        janet_panic("jbolt: tx-merge updates must be a table or struct");
+        return janet_wrap_nil(); /* unreachable */
+    }
+    const JanetKV *kv = NULL;
+    while ((kv = janet_dictionary_next(kvs, cap, kv))) {
+        janet_table_put(tbl, kv->key, kv->value);
+    }
+
+    JanetBuffer *buf = janet_buffer(64);
+    jbolt_marshal(buf, janet_wrap_table(tbl));
+    MDB_val new_val = {buf->count, buf->data};
+    JBOLT_CHECK(mdb_put(tx->txn, dbi, &mkey, &new_val, 0));
+    return janet_wrap_table(tbl);
+}
+
+static Janet jbolt_tx_dissoc(int32_t argc, Janet *argv) {
+    janet_arity(argc, 4, -1);
+    JBoltTx *tx = janet_getabstract(argv, 0, &jbolt_tx_type);
+    jbolt_check_tx(tx);
+    const char *bucket = (const char *)janet_getstring(argv, 1);
+    const char *keystr = (const char *)janet_getstring(argv, 2);
+
+    MDB_dbi dbi;
+    int rc = mdb_dbi_open(tx->txn, bucket, 0, &dbi);
+    if (rc == MDB_NOTFOUND) return janet_wrap_nil();
+    JBOLT_CHECK(rc);
+
+    MDB_val mkey = {strlen(keystr), (void *)keystr};
+    MDB_val mval;
+    rc = mdb_get(tx->txn, dbi, &mkey, &mval);
+    if (rc == MDB_NOTFOUND) return janet_wrap_nil();
+    JBOLT_CHECK(rc);
+
+    Janet existing = jbolt_unmarshal(mval.mv_data, mval.mv_size);
+    JanetTable *tbl;
+    if (janet_checktype(existing, JANET_STRUCT)) {
+        tbl = janet_struct_to_table(janet_unwrap_struct(existing));
+    } else if (janet_checktype(existing, JANET_TABLE)) {
+        tbl = janet_unwrap_table(existing);
+    } else {
+        janet_panic("jbolt: tx-dissoc requires value to be a table or struct");
+        return janet_wrap_nil(); /* unreachable */
+    }
+
+    for (int32_t i = 3; i < argc; i++) {
+        janet_table_put(tbl, argv[i], janet_wrap_nil());
+    }
+
+    JanetBuffer *buf = janet_buffer(64);
+    jbolt_marshal(buf, janet_wrap_table(tbl));
+    MDB_val new_val = {buf->count, buf->data};
+    JBOLT_CHECK(mdb_put(tx->txn, dbi, &mkey, &new_val, 0));
+    return janet_wrap_table(tbl);
+}
+
 /* Helper: resolve bucket -> dbi for read-only tx-* ops. Returns -1 on NOTFOUND
  * (caller returns the empty answer), panics on other errors. */
 static int jbolt_tx_dbi_ro(JBoltTx *tx, const char *bucket, MDB_dbi *dbi_out) {
@@ -2036,6 +2133,17 @@ static const JanetReg cfuns[] = {
     {"tx-delete", jbolt_tx_delete,
      "(jbolt/tx-delete tx bucket key)\n\n"
      "Delete a key within an explicit transaction. Use inside jbolt/update."},
+    {"tx-merge", jbolt_tx_merge,
+     "(jbolt/tx-merge tx bucket key updates)\n\n"
+     "Merge fields into an existing value within an explicit transaction. "
+     "Reads the current value, merges the updates, and writes it back. "
+     "Creates a new entry if the key does not exist. Returns the merged "
+     "table. Use inside jbolt/update."},
+    {"tx-dissoc", jbolt_tx_dissoc,
+     "(jbolt/tx-dissoc tx bucket key & keys-to-remove)\n\n"
+     "Remove fields from a stored value within an explicit transaction. "
+     "Returns the updated table, or nil if the bucket or key does not exist. "
+     "Use inside jbolt/update."},
     {"tx-has?", jbolt_tx_has,
      "(jbolt/tx-has? tx bucket key)\n\n"
      "Check if a key exists in a bucket within an explicit transaction."},

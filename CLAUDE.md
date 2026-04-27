@@ -41,6 +41,8 @@ Embedded, schema-freier Key-Value Store für Janet, basierend auf LMDB. Inspirie
 | `tx-put tx bucket key value` | Put innerhalb einer expliziten Transaktion |
 | `tx-get tx bucket key` | Get innerhalb einer expliziten Transaktion |
 | `tx-delete tx bucket key` | Delete innerhalb einer expliziten Transaktion |
+| `tx-merge tx bucket key updates` | Read-modify-write von Feldern innerhalb einer Transaktion. Legt Eintrag an, falls fehlend |
+| `tx-dissoc tx bucket key & keys-to-remove` | Felder aus Eintrag entfernen innerhalb einer Transaktion. nil wenn Bucket/Key fehlt |
 | `tx-has? tx bucket key` | Prüfen ob Key existiert, innerhalb einer Transaktion |
 | `tx-has-bucket? tx name` | Prüft ob Bucket existiert innerhalb einer Transaktion. Reservierte `__jbolt_`-Buckets gelten als nicht vorhanden |
 | `tx-count tx bucket` | Anzahl Einträge innerhalb einer Transaktion |
