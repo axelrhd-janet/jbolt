@@ -74,6 +74,7 @@ No system dependencies required. LMDB is vendored and compiled together with the
 ```janet
 (jbolt/ensure-bucket db "users")     # create if not exists
 (jbolt/drop-bucket db "sessions")    # delete bucket and all contents
+(jbolt/has-bucket? db "users")       # => true
 (jbolt/buckets db)                   # => @["users" "sessions"]
 ```
 
@@ -194,7 +195,7 @@ Individual `put`/`get`/`delete` calls use implicit transactions. For atomic mult
       (jbolt/tx-put tx "users" k v))))
 ```
 
-Available inside a `tx`: `tx-get`, `tx-put`, `tx-delete`, `tx-has?`, `tx-count`, `tx-keys`, `tx-collect`, `tx-each`, `tx-map`, `tx-filter`, `tx-first`, `tx-last`, `tx-seek`, `tx-prefix`, `tx-range`, `tx-next-id`. The iteration variants accept the same `:reverse` and `:break` conventions as their top-level counterparts. `tx-next-id` requires a read-write transaction.
+Available inside a `tx`: `tx-get`, `tx-put`, `tx-delete`, `tx-has?`, `tx-has-bucket?`, `tx-count`, `tx-keys`, `tx-collect`, `tx-each`, `tx-map`, `tx-filter`, `tx-first`, `tx-last`, `tx-seek`, `tx-prefix`, `tx-range`, `tx-next-id`. The iteration variants accept the same `:reverse` and `:break` conventions as their top-level counterparts. `tx-next-id` requires a read-write transaction.
 
 ### Utility
 

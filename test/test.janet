@@ -91,6 +91,51 @@
     (= 1 (length bs)))
   "ensure-bucket is idempotent")
 
+(test/assert
+  (do
+    (def db (fresh-db))
+    (jbolt/ensure-bucket db "users")
+    (def existing? (jbolt/has-bucket? db "users"))
+    (def missing? (jbolt/has-bucket? db "nope"))
+    (jbolt/close db)
+    (cleanup)
+    (and (= existing? true) (= missing? false)))
+  "has-bucket? reports existence")
+
+(test/assert
+  (do
+    (def db (fresh-db))
+    # next-id auto-creates the meta bucket as a side effect
+    (jbolt/next-id db "users")
+    (def hidden? (jbolt/has-bucket? db "__jbolt_meta__"))
+    (jbolt/close db)
+    (cleanup)
+    (= hidden? false))
+  "has-bucket? hides reserved __jbolt_ buckets")
+
+(test/assert
+  (do
+    (def db (fresh-db))
+    (jbolt/ensure-bucket db "temp")
+    (def before (jbolt/has-bucket? db "temp"))
+    (jbolt/drop-bucket db "temp")
+    (def after (jbolt/has-bucket? db "temp"))
+    (jbolt/close db)
+    (cleanup)
+    (and (= before true) (= after false)))
+  "has-bucket? sees drop-bucket")
+
+(test/assert
+  (do
+    (def db (fresh-db))
+    # Side-effect freedom: probing a missing bucket must not create it.
+    (jbolt/has-bucket? db "ghost")
+    (def bs (jbolt/buckets db))
+    (jbolt/close db)
+    (cleanup)
+    (= 0 (length bs)))
+  "has-bucket? does not create the bucket")
+
 (test/end-suite)
 
 # ----------------------------------------------------------------
@@ -646,6 +691,39 @@
     (cleanup)
     (deep= results [true false false]))
   "tx-has? reports existence")
+
+(test/assert
+  (do
+    (def db (fresh-db))
+    (jbolt/ensure-bucket db "users")
+    (jbolt/next-id db "users")
+    (def results
+      (jbolt/view db
+        (fn [tx]
+          [(jbolt/tx-has-bucket? tx "users")
+           (jbolt/tx-has-bucket? tx "missing")
+           (jbolt/tx-has-bucket? tx "__jbolt_meta__")])))
+    (jbolt/close db)
+    (cleanup)
+    (deep= results [true false false]))
+  "tx-has-bucket? reports existence and hides reserved buckets")
+
+(test/assert
+  (do
+    (def db (fresh-db))
+    # Inside a write txn, has-bucket? followed by ensure must agree atomically.
+    (def created
+      (jbolt/update db
+        (fn [tx]
+          (def before (jbolt/tx-has-bucket? tx "guarded"))
+          (when (not before)
+            (jbolt/tx-put tx "guarded" "k" "v"))
+          before)))
+    (def existing (jbolt/has-bucket? db "guarded"))
+    (jbolt/close db)
+    (cleanup)
+    (and (= created false) (= existing true)))
+  "tx-has-bucket? is consistent with subsequent tx-put inside one txn")
 
 (test/assert
   (do

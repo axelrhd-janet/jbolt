@@ -18,6 +18,7 @@ Embedded, schema-freier Key-Value Store für Janet, basierend auf LMDB. Inspirie
 | `close db` | DB schließen |
 | `ensure-bucket db name` | Bucket anlegen falls nicht vorhanden |
 | `drop-bucket db name` | Bucket mit allen Inhalten löschen |
+| `has-bucket? db name` | Prüft ob Bucket existiert. Reservierte `__jbolt_`-Buckets gelten als nicht vorhanden |
 | `buckets db` | Alle Bucket-Namen als Array |
 | `put db bucket key value` | Wert speichern (Key=String, Value=beliebiger Janet-Wert via marshal) |
 | `get db bucket key` | Wert lesen (nil wenn nicht vorhanden) |
@@ -41,6 +42,7 @@ Embedded, schema-freier Key-Value Store für Janet, basierend auf LMDB. Inspirie
 | `tx-get tx bucket key` | Get innerhalb einer expliziten Transaktion |
 | `tx-delete tx bucket key` | Delete innerhalb einer expliziten Transaktion |
 | `tx-has? tx bucket key` | Prüfen ob Key existiert, innerhalb einer Transaktion |
+| `tx-has-bucket? tx name` | Prüft ob Bucket existiert innerhalb einer Transaktion. Reservierte `__jbolt_`-Buckets gelten als nicht vorhanden |
 | `tx-count tx bucket` | Anzahl Einträge innerhalb einer Transaktion |
 | `tx-keys tx bucket &named :reverse` | Alle Keys innerhalb einer Transaktion |
 | `tx-collect tx bucket &named :reverse` | Alle Einträge als Tupel innerhalb einer Transaktion |

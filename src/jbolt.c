@@ -270,6 +270,32 @@ static Janet jbolt_drop_bucket(int32_t argc, Janet *argv) {
     return janet_wrap_nil();
 }
 
+static Janet jbolt_has_bucket(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 2);
+    JBoltDB *db = janet_getabstract(argv, 0, &jbolt_db_type);
+    jbolt_check_open(db->flags);
+    const char *name = (const char *)janet_getstring(argv, 1);
+
+    /* Reserved internal buckets are hidden from the public API,
+     * matching the behavior of jbolt_buckets. */
+    if (strncmp(name, JBOLT_META_PREFIX, strlen(JBOLT_META_PREFIX)) == 0) {
+        return janet_wrap_boolean(0);
+    }
+
+    MDB_txn *txn;
+    JBOLT_CHECK(mdb_txn_begin(db->env, NULL, MDB_RDONLY, &txn));
+
+    MDB_dbi dbi;
+    int rc = mdb_dbi_open(txn, name, 0, &dbi);
+    /* The dbi is auto-released on abort, so no leak even on success. */
+    mdb_txn_abort(txn);
+
+    if (rc == MDB_SUCCESS) return janet_wrap_boolean(1);
+    if (rc == MDB_NOTFOUND) return janet_wrap_boolean(0);
+    jbolt_panic_rc(rc);
+    return janet_wrap_nil(); /* unreachable */
+}
+
 static Janet jbolt_buckets(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 1);
     JBoltDB *db = janet_getabstract(argv, 0, &jbolt_db_type);
@@ -1166,6 +1192,25 @@ static Janet jbolt_tx_has(int32_t argc, Janet *argv) {
     return janet_wrap_boolean(rc == MDB_SUCCESS);
 }
 
+static Janet jbolt_tx_has_bucket(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 2);
+    JBoltTx *tx = janet_getabstract(argv, 0, &jbolt_tx_type);
+    jbolt_check_tx(tx);
+    const char *name = (const char *)janet_getstring(argv, 1);
+
+    /* Reserved internal buckets are hidden from the public API. */
+    if (strncmp(name, JBOLT_META_PREFIX, strlen(JBOLT_META_PREFIX)) == 0) {
+        return janet_wrap_boolean(0);
+    }
+
+    MDB_dbi dbi;
+    int rc = mdb_dbi_open(tx->txn, name, 0, &dbi);
+    if (rc == MDB_SUCCESS) return janet_wrap_boolean(1);
+    if (rc == MDB_NOTFOUND) return janet_wrap_boolean(0);
+    JBOLT_CHECK(rc);
+    return janet_wrap_nil(); /* unreachable */
+}
+
 static Janet jbolt_tx_count(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 2);
     JBoltTx *tx = janet_getabstract(argv, 0, &jbolt_tx_type);
@@ -1903,6 +1948,10 @@ static const JanetReg cfuns[] = {
     {"drop-bucket", jbolt_drop_bucket,
      "(jbolt/drop-bucket db name)\n\n"
      "Delete a bucket and all its contents. Raises an error if the bucket does not exist."},
+    {"has-bucket?", jbolt_has_bucket,
+     "(jbolt/has-bucket? db name)\n\n"
+     "Check if a bucket exists. Returns true or false. Reserved internal "
+     "buckets (those with a `__jbolt_` prefix) are reported as not present."},
     {"buckets", jbolt_buckets,
      "(jbolt/buckets db)\n\n"
      "Return an array of all bucket names in the database."},
@@ -1990,6 +2039,11 @@ static const JanetReg cfuns[] = {
     {"tx-has?", jbolt_tx_has,
      "(jbolt/tx-has? tx bucket key)\n\n"
      "Check if a key exists in a bucket within an explicit transaction."},
+    {"tx-has-bucket?", jbolt_tx_has_bucket,
+     "(jbolt/tx-has-bucket? tx name)\n\n"
+     "Check if a bucket exists within an explicit transaction. Reserved "
+     "internal buckets (those with a `__jbolt_` prefix) are reported as not "
+     "present."},
     {"tx-count", jbolt_tx_count,
      "(jbolt/tx-count tx bucket)\n\n"
      "Return the number of entries in a bucket within an explicit transaction."},
