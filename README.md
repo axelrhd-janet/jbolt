@@ -142,6 +142,8 @@ All iteration functions operate in key-sorted order. `each`, `collect`, `map`, `
 ```janet
 (jbolt/first db "users")              # first entry [key value] or nil
 (jbolt/last db "users")               # last entry [key value] or nil
+(jbolt/take db "users" 10)            # first 10 entries as @[[k v] ...]
+(jbolt/take-last db "users" 10)       # last 10 entries, in ascending key order
 (jbolt/seek db "users" "usr-01HX")    # first key >= "usr-01HX", or nil
 ```
 
@@ -202,7 +204,7 @@ Individual `put`/`get`/`delete` calls use implicit transactions. For atomic mult
         (jbolt/tx-merge tx "users" k {:year 2026})))))
 ```
 
-Available inside a `tx`: `tx-get`, `tx-put`, `tx-delete`, `tx-merge`, `tx-dissoc`, `tx-has?`, `tx-has-bucket?`, `tx-count`, `tx-keys`, `tx-collect`, `tx-each`, `tx-map`, `tx-filter`, `tx-first`, `tx-last`, `tx-seek`, `tx-prefix`, `tx-range`, `tx-next-id`. The iteration variants accept the same `:reverse` and `:break` conventions as their top-level counterparts. `tx-next-id`, `tx-merge`, and `tx-dissoc` require a read-write transaction.
+Available inside a `tx`: `tx-get`, `tx-put`, `tx-delete`, `tx-merge`, `tx-dissoc`, `tx-has?`, `tx-has-bucket?`, `tx-count`, `tx-keys`, `tx-collect`, `tx-each`, `tx-map`, `tx-filter`, `tx-first`, `tx-last`, `tx-take`, `tx-take-last`, `tx-seek`, `tx-prefix`, `tx-range`, `tx-next-id`. The iteration variants accept the same `:reverse` and `:break` conventions as their top-level counterparts. `tx-next-id`, `tx-merge`, and `tx-dissoc` require a read-write transaction.
 
 ### Utility
 

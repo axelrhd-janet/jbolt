@@ -488,6 +488,83 @@
     (nil? s))
   "seek returns nil when no key >= given")
 
+(test/assert
+  (do
+    (def db (setup-iter-db))
+    (def t (jbolt/take db "items" 2))
+    (jbolt/close db)
+    (cleanup)
+    (and (= 2 (length t))
+         (= "a" ((t 0) 0))
+         (= "b" ((t 1) 0))
+         (= 1 (get-in t [0 1 :n]))))
+  "take returns first n entries in key order")
+
+(test/assert
+  (do
+    (def db (setup-iter-db))
+    (def t (jbolt/take db "items" 100))
+    (jbolt/close db)
+    (cleanup)
+    (and (= 3 (length t))
+         (= "a" ((t 0) 0))
+         (= "c" ((t 2) 0))))
+  "take returns all entries when n exceeds count")
+
+(test/assert
+  (do
+    (def db (setup-iter-db))
+    (def t0 (jbolt/take db "items" 0))
+    (def tn (jbolt/take db "items" -5))
+    (jbolt/close db)
+    (cleanup)
+    (and (= 0 (length t0)) (= 0 (length tn))))
+  "take with n <= 0 returns empty array")
+
+(test/assert
+  (do
+    (def db (fresh-db))
+    (def t (jbolt/take db "missing" 5))
+    (def tl (jbolt/take-last db "missing" 5))
+    (jbolt/close db)
+    (cleanup)
+    (and (= 0 (length t)) (= 0 (length tl))))
+  "take/take-last on missing bucket return empty array")
+
+(test/assert
+  (do
+    (def db (setup-iter-db))
+    (def t (jbolt/take-last db "items" 2))
+    (jbolt/close db)
+    (cleanup)
+    (and (= 2 (length t))
+         # ascending order preserved (matches Janet stdlib take-last)
+         (= "b" ((t 0) 0))
+         (= "c" ((t 1) 0))))
+  "take-last returns last n entries in ascending key order")
+
+(test/assert
+  (do
+    (def db (setup-iter-db))
+    (def t (jbolt/take-last db "items" 100))
+    (jbolt/close db)
+    (cleanup)
+    (and (= 3 (length t))
+         (= "a" ((t 0) 0))
+         (= "c" ((t 2) 0))))
+  "take-last returns all entries when n exceeds count")
+
+(test/assert
+  (do
+    (def db (fresh-db))
+    (jbolt/ensure-bucket db "empty")
+    (def t (jbolt/take db "empty" 10))
+    (def tl (jbolt/take-last db "empty" 10))
+    (jbolt/close db)
+    (cleanup)
+    (and (= 0 (length t)) (= 0 (length tl))))
+  "take/take-last on empty bucket return empty array")
+
 (test/end-suite)
 
 # ----------------------------------------------------------------
@@ -943,6 +1020,27 @@
          (= (stored :role) :admin)
          (nil? (stored :draft))))
   "tx-merge and tx-dissoc compose atomically in one txn")
+
+(test/assert
+  (do
+    (def db (fresh-db))
+    (jbolt/put db "items" "a" {:n 1})
+    (jbolt/put db "items" "b" {:n 2})
+    (jbolt/put db "items" "c" {:n 3})
+    (def [head tail]
+      (jbolt/view db
+        (fn [tx]
+          [(jbolt/tx-take tx "items" 2)
+           (jbolt/tx-take-last tx "items" 2)])))
+    (jbolt/close db)
+    (cleanup)
+    (and (= 2 (length head))
+         (= "a" ((head 0) 0))
+         (= "b" ((head 1) 0))
+         (= 2 (length tail))
+         (= "b" ((tail 0) 0))
+         (= "c" ((tail 1) 0))))
+  "tx-take and tx-take-last work inside view")
 
 (test/end-suite)
 

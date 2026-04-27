@@ -32,6 +32,8 @@ Embedded, schema-freier Key-Value Store für Janet, basierend auf LMDB. Inspirie
 | `keys db bucket &named :reverse` | Alle Keys als Array (ohne Values zu deserialisieren) |
 | `first db bucket` | Erster Eintrag [key value] oder nil |
 | `last db bucket` | Letzter Eintrag [key value] oder nil |
+| `take db bucket n` | Erste `n` Einträge als `@[[k v] ...]`, in Key-Reihenfolge. Stoppt nach `n` Einträgen |
+| `take-last db bucket n` | Letzte `n` Einträge als `@[[k v] ...]`, in aufsteigender Key-Reihenfolge. Liest nur den Tail |
 | `seek db bucket key` | Erster Eintrag mit Key >= gegebenem Key, oder nil |
 | `prefix db bucket prefix callback` | Prefix-Scan. Callback kann `:break` zurückgeben |
 | `range db bucket start end callback` | Range-Scan (inklusiv). Callback kann `:break` zurückgeben |
@@ -53,6 +55,8 @@ Embedded, schema-freier Key-Value Store für Janet, basierend auf LMDB. Inspirie
 | `tx-filter tx bucket f &named :reverse` | Filter innerhalb einer Transaktion |
 | `tx-first tx bucket` | Erster Eintrag innerhalb einer Transaktion |
 | `tx-last tx bucket` | Letzter Eintrag innerhalb einer Transaktion |
+| `tx-take tx bucket n` | Erste `n` Einträge innerhalb einer Transaktion |
+| `tx-take-last tx bucket n` | Letzte `n` Einträge in aufsteigender Reihenfolge innerhalb einer Transaktion |
 | `tx-seek tx bucket key` | Erster Eintrag mit Key >= innerhalb einer Transaktion |
 | `tx-prefix tx bucket prefix f` | Prefix-Scan innerhalb einer Transaktion, `:break` möglich |
 | `tx-range tx bucket start end f` | Range-Scan innerhalb einer Transaktion, `:break` möglich |

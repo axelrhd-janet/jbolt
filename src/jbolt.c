@@ -953,6 +953,70 @@ static Janet jbolt_seek(int32_t argc, Janet *argv) {
     return result;
 }
 
+/* Walk a cursor for up to `n` entries, push [k v] tuples into `arr`. */
+static void jbolt_take_walk(MDB_cursor *cursor, int reverse,
+                             int32_t n, JanetArray *arr) {
+    if (n <= 0) return;
+    MDB_cursor_op first_op = reverse ? MDB_LAST : MDB_FIRST;
+    MDB_cursor_op next_op = reverse ? MDB_PREV : MDB_NEXT;
+    MDB_val key, val;
+    int rc = mdb_cursor_get(cursor, &key, &val, first_op);
+    int32_t taken = 0;
+    while (rc == MDB_SUCCESS && taken < n) {
+        Janet tuple[2];
+        tuple[0] = janet_stringv(key.mv_data, key.mv_size);
+        tuple[1] = jbolt_unmarshal(val.mv_data, val.mv_size);
+        janet_array_push(arr, janet_wrap_tuple(janet_tuple_n(tuple, 2)));
+        taken++;
+        rc = mdb_cursor_get(cursor, &key, &val, next_op);
+    }
+}
+
+static Janet jbolt_take(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 3);
+    JBoltDB *db = janet_getabstract(argv, 0, &jbolt_db_type);
+    jbolt_check_open(db->flags);
+    const char *bucket = (const char *)janet_getstring(argv, 1);
+    int32_t n = janet_getinteger(argv, 2);
+
+    MDB_txn *txn; MDB_dbi dbi; MDB_cursor *cursor;
+    if (jbolt_iter_begin(db, bucket, &txn, &dbi, &cursor) < 0) {
+        return janet_wrap_array(janet_array(0));
+    }
+
+    JanetArray *arr = janet_array(n > 0 ? n : 0);
+    jbolt_take_walk(cursor, 0, n, arr);
+
+    jbolt_iter_end(cursor, txn);
+    return janet_wrap_array(arr);
+}
+
+static Janet jbolt_take_last(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 3);
+    JBoltDB *db = janet_getabstract(argv, 0, &jbolt_db_type);
+    jbolt_check_open(db->flags);
+    const char *bucket = (const char *)janet_getstring(argv, 1);
+    int32_t n = janet_getinteger(argv, 2);
+
+    MDB_txn *txn; MDB_dbi dbi; MDB_cursor *cursor;
+    if (jbolt_iter_begin(db, bucket, &txn, &dbi, &cursor) < 0) {
+        return janet_wrap_array(janet_array(0));
+    }
+
+    /* Walk backward to read only the tail, then reverse so the result
+     * is returned in ascending key order (matching Janet's take-last). */
+    JanetArray *arr = janet_array(n > 0 ? n : 0);
+    jbolt_take_walk(cursor, 1, n, arr);
+    jbolt_iter_end(cursor, txn);
+
+    for (int32_t i = 0, j = arr->count - 1; i < j; i++, j--) {
+        Janet tmp = arr->data[i];
+        arr->data[i] = arr->data[j];
+        arr->data[j] = tmp;
+    }
+    return janet_wrap_array(arr);
+}
+
 /* ----------------------------------------------------------------
  * Phase 2: prefix, range
  * ---------------------------------------------------------------- */
@@ -1441,6 +1505,48 @@ static Janet jbolt_tx_seek(int32_t argc, Janet *argv) {
     }
     mdb_cursor_close(cursor);
     return result;
+}
+
+static Janet jbolt_tx_take(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 3);
+    JBoltTx *tx = janet_getabstract(argv, 0, &jbolt_tx_type);
+    jbolt_check_tx(tx);
+    const char *bucket = (const char *)janet_getstring(argv, 1);
+    int32_t n = janet_getinteger(argv, 2);
+
+    MDB_cursor *cursor;
+    if (jbolt_tx_iter_begin(tx->db, tx->txn, bucket, &cursor) < 0) {
+        return janet_wrap_array(janet_array(0));
+    }
+
+    JanetArray *arr = janet_array(n > 0 ? n : 0);
+    jbolt_take_walk(cursor, 0, n, arr);
+    mdb_cursor_close(cursor);
+    return janet_wrap_array(arr);
+}
+
+static Janet jbolt_tx_take_last(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 3);
+    JBoltTx *tx = janet_getabstract(argv, 0, &jbolt_tx_type);
+    jbolt_check_tx(tx);
+    const char *bucket = (const char *)janet_getstring(argv, 1);
+    int32_t n = janet_getinteger(argv, 2);
+
+    MDB_cursor *cursor;
+    if (jbolt_tx_iter_begin(tx->db, tx->txn, bucket, &cursor) < 0) {
+        return janet_wrap_array(janet_array(0));
+    }
+
+    JanetArray *arr = janet_array(n > 0 ? n : 0);
+    jbolt_take_walk(cursor, 1, n, arr);
+    mdb_cursor_close(cursor);
+
+    for (int32_t i = 0, j = arr->count - 1; i < j; i++, j--) {
+        Janet tmp = arr->data[i];
+        arr->data[i] = arr->data[j];
+        arr->data[j] = tmp;
+    }
+    return janet_wrap_array(arr);
 }
 
 static Janet jbolt_tx_each(int32_t argc, Janet *argv) {
@@ -2103,6 +2209,17 @@ static const JanetReg cfuns[] = {
     {"last", jbolt_last,
      "(jbolt/last db bucket)\n\n"
      "Return the last entry [key value] in a bucket (by key order), or nil if empty."},
+    {"take", jbolt_take,
+     "(jbolt/take db bucket n)\n\n"
+     "Return the first `n` entries in a bucket as an array of [key value] "
+     "tuples, in key order. Stops reading after `n` entries. Returns an "
+     "empty array if `n` <= 0 or the bucket does not exist."},
+    {"take-last", jbolt_take_last,
+     "(jbolt/take-last db bucket n)\n\n"
+     "Return the last `n` entries in a bucket as an array of [key value] "
+     "tuples, in ascending key order. Reads only the tail (does not "
+     "materialize the whole bucket). Returns an empty array if `n` <= 0 "
+     "or the bucket does not exist."},
     {"seek", jbolt_seek,
      "(jbolt/seek db bucket key)\n\n"
      "Find the first entry with a key >= the given key. "
@@ -2179,6 +2296,14 @@ static const JanetReg cfuns[] = {
     {"tx-last", jbolt_tx_last,
      "(jbolt/tx-last tx bucket)\n\n"
      "Return the last entry [key value] in a bucket within a transaction, or nil."},
+    {"tx-take", jbolt_tx_take,
+     "(jbolt/tx-take tx bucket n)\n\n"
+     "Return the first `n` entries in a bucket as an array of [key value] "
+     "tuples within a transaction."},
+    {"tx-take-last", jbolt_tx_take_last,
+     "(jbolt/tx-take-last tx bucket n)\n\n"
+     "Return the last `n` entries in a bucket as an array of [key value] "
+     "tuples in ascending key order, within a transaction."},
     {"tx-seek", jbolt_tx_seek,
      "(jbolt/tx-seek tx bucket key)\n\n"
      "Find the first entry with a key >= the given key within a transaction, "
