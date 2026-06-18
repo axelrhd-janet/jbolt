@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Bump version in project.janet"
+set -euo pipefail
+: "${1:?Version angeben, z. B. mise run bump -- 0.2.0}"
+sed -i "s/:version \"[^\"]*\"/:version \"$1\"/" project.janet
+echo "Version bumped to $1"

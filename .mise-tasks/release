@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#MISE description="Release: bump version, commit, tag, push"
+set -euo pipefail
+: "${1:?Version angeben, z. B. mise run release -- 0.2.0}"
+mise run bump -- "$1"
+git add project.janet
+git diff --cached --quiet || git commit -m "chore: bump version to $1"
+git tag -fa "v$1" -m "v$1"
+git push origin main --tags
+echo "Released v$1"

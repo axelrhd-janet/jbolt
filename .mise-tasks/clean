@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Remove build artifacts"
+set -euo pipefail
+jpm clean

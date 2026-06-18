@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Build native module"
+set -euo pipefail
+jpm build
